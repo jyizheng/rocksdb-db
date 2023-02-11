@@ -227,7 +227,7 @@ Status ReadProperties(const ReadOptions& read_options,
                              &block_contents, ioptions, false /* decompress */,
                              false /*maybe_compressed*/, BlockType::kProperties,
                              UncompressionDict::GetEmptyDict(), cache_options,
-                             memory_allocator,nullptr,false, true);
+                             memory_allocator);
   s = block_fetcher.ReadBlockContents();
   // property block is never compressed. Need to add uncompress logic if we are
   // to compress it..

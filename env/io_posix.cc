@@ -334,13 +334,11 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   }
 
   long version = 0;
-#ifndef BLOCK_ENC
   result = ioctl(fd, FS_IOC_GETVERSION, &version);
   TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
   if (result == -1) {
     return 0;
   }
-#endif
   uint64_t uversion = (uint64_t)version;
 
   char* rid = id;
@@ -1292,8 +1290,7 @@ uint64_t PosixWritableFile::GetFileSize(const IOOptions& /*opts*/,
   return filesize_;
 }
 
-void PosixWritableFile::SetWriteLifeTimeHint(__attribute__((unused)) Env::WriteLifeTimeHint hint) {
-#ifdef ROCKSDB_SGX
+void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
 #ifdef OS_LINUX
 // Suppress Valgrind "Unimplemented functionality" error.
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -1309,7 +1306,6 @@ void PosixWritableFile::SetWriteLifeTimeHint(__attribute__((unused)) Env::WriteL
 #else
   (void)hint;
 #endif  // OS_LINUX
-#endif  // ROCKSDB_SGX
 }
 
 IOStatus PosixWritableFile::InvalidateCache(size_t offset, size_t length) {

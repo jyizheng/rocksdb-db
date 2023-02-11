@@ -51,14 +51,6 @@ enum Tag : uint32_t {
   kMaxColumnFamily = 203,
 
   kInAtomicGroup = 300,
-#ifdef LOG_ENC
-	kLogkeyAndHash = 500,
-#endif
-
-#ifdef BLOCK_ENC
-	kSSTAdd = 501,
-	kSSTDelete = 502,
-#endif
 
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
@@ -158,14 +150,6 @@ struct FileSampledStats {
   // number of user reads to this file.
   mutable std::atomic<uint64_t> num_reads_sampled;
 };
-
-#ifdef LOG_ENC
-struct LogSecret {
-	uint64_t log_num;
-	char unique_key[32];
-	char unique_hash[16];
-};
-#endif
 
 struct FileMetaData {
   FileDescriptor fd;
@@ -547,28 +531,6 @@ class VersionEdit {
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
-#ifdef LOG_ENC
-	void AddLogSecret(uint64_t log_num_, char *unique_key_, char* unique_hash) {
-		is_log_secret = true;
-		memcpy(&log_secret.log_num,&log_num_,8);
-		memcpy(log_secret.unique_key,unique_key_,32);
-		memcpy(log_secret.unique_hash,unique_hash,16);
-	}
-
-#endif
-
-#ifdef BLOCK_ENC
-	void AddSSTKey(uint64_t file_number, char *sstkey) {
-		is_sst_key = true;
-		sst_file_number = file_number;
-		memcpy(sst_key,sstkey,32);
-	}
-
-	void DeleteSSTKey(uint64_t file_number) {
-		is_sst_delete = true;
-		sst_delete_file_number = file_number;
-	}
-#endif
  private:
   friend class ReactiveVersionSet;
   friend class VersionEditHandlerBase;
@@ -624,17 +586,6 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
-#ifdef LOG_ENC
-	bool is_log_secret = false;
-	LogSecret log_secret;
-#endif
-#ifdef BLOCK_ENC
-	bool is_sst_key = false;
-	char sst_key[32];
-	uint64_t sst_file_number;
-	bool is_sst_delete = false;
-	uint64_t sst_delete_file_number;
-#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

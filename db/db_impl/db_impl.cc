@@ -102,15 +102,8 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#ifdef CACHE
-#include "sgx/untrusted_memory_allocator.h"
-#endif
-
 
 namespace ROCKSDB_NAMESPACE {
-#ifdef CACHE
-extern UntrustedMemoryAllocator *untrusted_allocator;
-#endif
 
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
@@ -656,9 +649,6 @@ Status DBImpl::CloseHelper() {
     // retry. In this case, we wrap this exception to something else.
     return Status::Incomplete(ret.ToString());
   }
-#ifdef CACHE
-  delete untrusted_allocator;
-#endif
   return ret;
 }
 
@@ -932,7 +922,6 @@ void DBImpl::FlushInfoLog() {
   TEST_SYNC_POINT("DBImpl::FlushInfoLog:StartRunning");
   LogFlush(immutable_db_options_.info_log);
 }
-
 
 Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
                                            int max_entries_to_print,

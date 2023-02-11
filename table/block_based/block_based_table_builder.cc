@@ -50,15 +50,11 @@
 #include "util/work_queue.h"
 #include "util/xxhash.h"
 
-#ifdef BLOCK_ENC
-#include "sgx/hmac.h"
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
+
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
@@ -250,9 +246,6 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 };
 
 struct BlockBasedTableBuilder::Rep {
-#ifdef BLOCK_ENC
-	std::string sst_key;
-#endif
   const ImmutableCFOptions ioptions;
   const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
@@ -424,7 +417,6 @@ struct BlockBasedTableBuilder::Rep {
         alignment(table_options.block_align
                       ? std::min(table_options.block_size, kDefaultPageSize)
                       : 0),
-#ifndef BLOCK_ENC
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding,
                    false /* use_value_delta_encoding */,
@@ -433,16 +425,6 @@ struct BlockBasedTableBuilder::Rep {
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio),
-#else
-        data_block(table_options.block_restart_interval,
-                   table_options.use_delta_encoding,
-                   false /* use_value_delta_encoding */,
-                   icomparator.user_comparator()
-                           ->CanKeysWithDifferentByteContentsBeEqual()
-                       ? BlockBasedTableOptions::kDataBlockBinarySearch
-                       : table_options.data_block_index_type,
-                   table_options.data_block_hash_table_util_ratio,true),
-#endif
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
@@ -472,10 +454,6 @@ struct BlockBasedTableBuilder::Rep {
         db_host_id(ioptions.db_host_id),
         status_ok(true),
         io_status_ok(true) {
-#ifdef BLOCK_ENC
-		sst_key = FilenameToKey(file->file_name());
-		data_block.SetSSTKey(sst_key);
-#endif
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -525,7 +503,6 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
-
 
  private:
   // Synchronize status & io_status accesses across threads from main thread,
@@ -769,7 +746,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
                          const Slice* first_key_in_next_block,
                          BlockBuilder* data_block) {
     BlockRep* block_rep =
-       PrepareBlockInternal(compression_type, first_key_in_next_block);
+        PrepareBlockInternal(compression_type, first_key_in_next_block);
     assert(block_rep != nullptr);
     data_block->SwapAndReset(*(block_rep->data));
     block_rep->contents = *(block_rep->data);
@@ -1182,41 +1159,16 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
                                            bool is_data_block) {
-
-#ifdef BLOCK_ENC
-		Slice block_contents_;
-		std::string new_buf;
-    if (!is_data_block) {
-			Encryption(block_contents, (unsigned char*)(rep_->sst_key.data()),gcm_iv,gcm_aad);
-    	unsigned char hmac[48];
-    	digest(hmac, block_contents,rep_->sst_key);
-    	new_buf.append(block_contents.data(),block_contents.size());
-    	new_buf.append((char*)hmac,48);
-			block_contents_ = Slice(new_buf);
-    } else {
-			block_contents_ = block_contents;
-		}
-#endif
   Rep* r = rep_;
   Status s = Status::OK();
   IOStatus io_s = IOStatus::OK();
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
-#ifdef BLOCK_ENC
-  handle->set_size(block_contents_.size());
-#else
-	handle->set_size(block_contents.size());
-#endif
+  handle->set_size(block_contents.size());
   assert(status().ok());
   assert(io_status().ok());
-#ifdef BLOCK_ENC
-	io_s = r->file->Append(block_contents_);
-#else
-	io_s = r->file->Append(block_contents);
-#endif
-
+  io_s = r->file->Append(block_contents);
   if (io_s.ok()) {
-#ifndef BLOCK_ENC
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
     uint32_t checksum = 0;
@@ -1260,21 +1212,10 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
-		io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
-#else
-		char trailer[kBlockTrailerSize];
-		trailer[0] = type;
-		io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
-#endif
-
-
+    io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
-#ifdef BLOCK_ENC
-      s = InsertBlockInCache(block_contents_, type, handle);
-#else
-			s = InsertBlockInCache(block_contents, type, handle);
-#endif
+      s = InsertBlockInCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
       }
@@ -1282,7 +1223,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       r->SetIOStatus(io_s);
     }
     if (s.ok() && io_s.ok()) {
-#ifndef BLOCK_ENC
       r->set_offset(r->get_offset() + block_contents.size() +
                     kBlockTrailerSize);
       if (r->table_options.block_align && is_data_block) {
@@ -1306,31 +1246,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         }
       }
     }
-#else
-      r->set_offset(r->get_offset() + block_contents_.size() +
-                     kBlockTrailerSize);
-      if (r->table_options.block_align && is_data_block) {
-        size_t pad_bytes =
-            (r->alignment - ((block_contents_.size() + kBlockTrailerSize) &
-                             (r->alignment - 1))) &
-            (r->alignment - 1);
-        io_s = r->file->Pad(pad_bytes);
-        if (io_s.ok()) {
-          r->set_offset(r->get_offset() + pad_bytes);
-        } else {
-          r->SetIOStatus(io_s);
-        }
-      }
-      if (r->IsParallelCompressionEnabled()) {
-        if (is_data_block) {
-          r->pc_rep->file_size_estimator.ReapBlock(block_contents_.size(),
-                                                   r->get_offset());
-        } else {
-          r->pc_rep->file_size_estimator.SetEstimatedFileSize(r->get_offset());
-        }
-      }
-    }
-#endif
   } else {
     r->SetIOStatus(io_s);
   }
@@ -1483,7 +1398,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
       Slice filter_content =
-					rep_->filter_builder->Finish(filter_block_handle, &s);			
+          rep_->filter_builder->Finish(filter_block_handle, &s);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);

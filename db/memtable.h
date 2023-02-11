@@ -21,9 +21,6 @@
 #include "db/version_edit.h"
 #include "memory/allocator.h"
 #include "memory/concurrent_arena.h"
-#ifdef MEMTABLE
-#include "memory/untrusted_concurrent_arena.h"
-#endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -33,17 +30,12 @@
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
-#ifdef MEMTABLE
-#include "memory/untrusted_arena.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
-
 
 struct ImmutableMemTableOptions {
   explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
@@ -73,7 +65,6 @@ struct MemTablePostProcessInfo {
   uint64_t num_entries = 0;
   uint64_t num_deletes = 0;
 };
-
 
 using MultiGetRange = MultiGetContext::Range;
 // Note:  Many of the methods in this class have comments indicating that
@@ -468,9 +459,6 @@ class MemTable {
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
   ConcurrentArena arena_;
-#ifdef MEMTABLE
-	UntrustedConcurrentArena u_arena_;
-#endif
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
   std::atomic_bool is_range_del_table_empty_;

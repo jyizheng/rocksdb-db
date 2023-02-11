@@ -288,7 +288,7 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::IOError(fname,
                                "Direct I/O not supported in RocksDB lite");
 #endif  // ROCKSDB_LITE
-      flags |= O_RDWR;
+      flags |= O_WRONLY;
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif

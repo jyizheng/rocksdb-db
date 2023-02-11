@@ -261,7 +261,7 @@ struct BlockContents {
   // for raw block contents, which contains the compression
   // byte in the end.
   CompressionType get_compression_type() const {
-    //assert(is_raw_block);
+    assert(is_raw_block);
     return get_block_compression_type(data.data(), data.size());
   }
 

@@ -270,12 +270,6 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
-	sgx/hmac.cc																										\
-	sgx/enc_dec.cc																								\
-	memory/untrusted_arena.cc																			\
-	sgx/encryptedblock.cc																					\
-	memory/untrusted_concurrent_arena.cc													\
-
 
 ifeq ($(ARMCRC_SOURCE),1)
 LIB_SOURCES +=\

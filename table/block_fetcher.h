@@ -13,10 +13,6 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 // Retrieves a single block of a given file. Utilizes the prefetch buffer and/or
@@ -49,9 +45,7 @@ class BlockFetcher {
                const PersistentCacheOptions& cache_options,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
-               bool for_compaction = false,
-							 bool decrypt_ = false)
-
+               bool for_compaction = false)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -68,13 +62,7 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction),
-				decrypt(decrypt_)
-#ifdef BLOCK_ENC
-				,
-				sst_key(FilenameToKey(file->file_name()))
-#endif
-				{}
+        for_compaction_(for_compaction) {}
 
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
@@ -87,7 +75,6 @@ class BlockFetcher {
   }
 
 #endif
-	
  private:
 #ifndef NDEBUG
   int num_stack_buf_memcpy_ = 0;
@@ -107,7 +94,7 @@ class BlockFetcher {
   const bool do_uncompress_;
   const bool maybe_compressed_;
   const BlockType block_type_;
-  size_t block_size_;
+  const size_t block_size_;
   const size_t block_size_with_trailer_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
@@ -138,9 +125,5 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void CheckBlockChecksum();
-	bool decrypt;
-#ifdef BLOCK_ENC
-	std::string sst_key;
-#endif
 };
 }  // namespace ROCKSDB_NAMESPACE

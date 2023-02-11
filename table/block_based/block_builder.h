@@ -14,10 +14,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
 #include "table/block_based/data_block_hash_index.h"
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#include "sgx/hmac.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,12 +27,10 @@ class BlockBuilder {
                         bool use_value_delta_encoding = false,
                         BlockBasedTableOptions::DataBlockIndexType index_type =
                             BlockBasedTableOptions::kDataBlockBinarySearch,
-                        double data_block_hash_table_util_ratio = 0.75, bool data_block_ = false);
+                        double data_block_hash_table_util_ratio = 0.75);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
-
-	void SetSSTKey(std::string sst_key_) { sst_key = sst_key_;}
 
   // Swap the contents in BlockBuilder with buffer, then reset the BlockBuilder.
   void SwapAndReset(std::string& buffer);
@@ -79,11 +73,6 @@ class BlockBuilder {
   bool finished_;  // Has Finish() been called?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
-
-	std::string meta_buf;
-	uint32_t meta_offset;
-	bool data_block;
-	std::string sst_key;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

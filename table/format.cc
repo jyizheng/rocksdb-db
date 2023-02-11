@@ -189,11 +189,10 @@ void Footer::EncodeTo(std::string* dst) const {
     metaindex_handle_.EncodeTo(dst);
     index_handle_.EncodeTo(dst);
     dst->resize(original_size + kNewVersionsEncodedLength - 12);  // Padding
-    //Put length of the hmacs total bytes = hmacs length * 32byte(sha2 256)
     PutFixed32(dst, version());
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
-//    assert(dst->size() == original_size + kNewVersionsEncodedLength);
+    assert(dst->size() == original_size + kNewVersionsEncodedLength);
   }
 }
 
@@ -296,7 +295,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   std::string footer_buf;
   AlignedBuf internal_buf;
   Slice footer_input;
-	size_t read_offset =
+  size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)
           ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
           : 0;
@@ -313,7 +312,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf);
     } else {
-			footer_buf.reserve(Footer::kMaxEncodedLength);
+      footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, &footer_buf[0], nullptr);
     }
@@ -330,7 +329,6 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   }
 
   s = footer->DecodeFrom(&footer_input);
-
   if (!s.ok()) {
     return s;
   }
@@ -398,10 +396,8 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                BlockContents* contents, uint32_t format_version,
                                const ImmutableCFOptions& ioptions,
                                MemoryAllocator* allocator) {
-#ifndef BLOCK_ENC
-  assert(data[n] == static_cast<char>(uncompression_info.type()));
   assert(data[n] != kNoCompression);
-#endif 
+  assert(data[n] == static_cast<char>(uncompression_info.type()));
   return UncompressBlockContentsForCompressionType(uncompression_info, data, n,
                                                    contents, format_version,
                                                    ioptions, allocator);

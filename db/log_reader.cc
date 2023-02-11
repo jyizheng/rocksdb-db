@@ -17,16 +17,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-#ifdef LOG_ENC
-#include "sgx/hmac.h"
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
-
-extern unsigned char manifest_key[32];
-extern unsigned char manifest_hash[48];
-
 namespace log {
 
 Reader::Reporter::~Reporter() {
@@ -34,7 +25,7 @@ Reader::Reporter::~Reporter() {
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t log_num, bool manifest)
+               Reporter* reporter, bool checksum, uint64_t log_num)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -47,15 +38,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false) {
-#ifdef LOG_ENC
-	if(manifest) {
-		memcpy(unique_key,manifest_key,32);
-		memcpy(previous_mac,manifest_hash,16);
-	}
-	
-#endif
-}
+      recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -335,14 +318,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
 unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
     // We need at least the minimum header size
-#ifndef LOG_ENC
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
-#else
-      /*
-        Each log entry have 16 bytes GMAC.
-      */
-		if (buffer_.size() < static_cast<size_t>(kHeaderSize) + 16) {
-#endif
       // the default value of r is meaningless because ReadMore will overwrite
       // it if it returns false; in case it returns true, the return value will
       // not be used anyway
@@ -353,14 +329,6 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       continue;
     }
 
-#ifdef LOG_ENC
-    /*
-      Decrypt the header first.
-      Since header doesn't contain GMAC, we don't compare 
-    */
-		log_decrypt(Slice(buffer_.data(),kHeaderSize),unique_key);
-#endif
-
     // Parse the header
     const char* header = buffer_.data();
     const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
@@ -368,15 +336,6 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     const unsigned int type = header[6];
     const uint32_t length = a | (b << 8);
     int header_size = kHeaderSize;
-#ifdef LOG_ENC
-    /*
-      Decrypt the log and set previous log to newer value.
-    */
-		char* read_mac = (char*)(buffer_.data() + kHeaderSize + length);
-		log_decrypt(Slice(buffer_.data() + kHeaderSize,length),unique_key,read_mac,previous_mac);
-		memcpy(previous_mac,read_mac,16);
-#endif
-
     if (type >= kRecyclableFullType && type <= kRecyclableLastType) {
       if (end_of_buffer_offset_ - buffer_.size() == 0) {
         recycled_ = true;
@@ -436,12 +395,6 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     }
 
     buffer_.remove_prefix(header_size + length);
-#ifdef LOG_ENC
-    /*
-      remove size of GMAC from buffer.
-    */
-		buffer_.remove_prefix(16);
-#endif
 
     *result = Slice(header + header_size, length);
     return type;

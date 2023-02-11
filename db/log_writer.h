@@ -16,7 +16,6 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include <string.h>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -74,7 +73,7 @@ class Writer {
   // "*dest" must remain live while this Writer is in use.
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, bool recycle_log_files,
-                  bool manual_flush = false,bool manifest = false);
+                  bool manual_flush = false);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
@@ -94,19 +93,6 @@ class Writer {
 
   bool TEST_BufferIsEmpty();
 
-#ifdef LOG_ENC
-  /*
-    Function for key and hash
-  */
-	char* GetKey() {
-		return unique_key;
-	}
-	char* GetHash() {
-		return previous_mac;
-	}
-
-#endif
-
  private:
   std::unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;       // Current offset in block
@@ -123,15 +109,6 @@ class Writer {
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()
   bool manual_flush_;
-
-#ifdef LOG_ENC
-  /*
-    location for key and hash
-  */
-	std::string Encryption_buffer;
-	char previous_mac[48];
-	char unique_key[32];
-#endif
 };
 
 }  // namespace log

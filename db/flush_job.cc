@@ -46,16 +46,8 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#endif 
 
 namespace ROCKSDB_NAMESPACE {
-
-#ifdef BLOCK_ENC
-extern std::map<uint64_t, std::string> KeyList;
-extern pthread_rwlock_t key_lock;
-#endif
 
 const char* GetFlushReasonString (FlushReason flush_reason) {
   switch (flush_reason) {
@@ -254,21 +246,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
         log_buffer_, &committed_flush_jobs_info_, &tmp_io_s);
-#ifdef BLOCK_ENC
-		VersionEdit e;	
-		char sstkey[32];
-		pthread_rwlock_rdlock(&key_lock);
-		auto res = KeyList.find(meta_.fd.GetNumber());
-		if (res != KeyList.end()) {
-			memcpy(sstkey,(char*)((res->second).c_str()),32);
-			e.AddSSTKey(res->first,sstkey);
-		} else {
-			fprintf(stdout,"Fail to Find sst key \n");
-			exit(-1);
-		}
-		pthread_rwlock_unlock(&key_lock);
-		versions_->LogAndApplyToDefaultColumnFamily(&e, db_mutex_,db_directory_);
-#endif
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -425,12 +402,6 @@ Status FlushJob::WriteLevel0Table() {
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
-#ifdef BLOCK_ENC
-		std::string flush_file_name = TableFileName((*cfd_->ioptions()).cf_paths, meta_.fd.GetNumber(),
-																								meta_.fd.GetPathId());
-		GenerateKey(flush_file_name,NULL);
-#endif
-
       s = BuildTable(
           dbname_, versions_, db_options_, *cfd_->ioptions(),
           mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),

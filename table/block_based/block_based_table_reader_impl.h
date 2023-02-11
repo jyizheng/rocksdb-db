@@ -10,9 +10,6 @@
 #include "table/block_based/block_based_table_reader.h"
 
 #include "table/block_based/reader_common.h"
-#ifdef BLOCK_ENC
-#include "sgx/encryptedblock.h"
-#endif
 
 // The file contains some member functions of BlockBasedTable that
 // cannot be implemented in block_based_table_reader.cc because
@@ -54,11 +51,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
                                       ? *uncompression_dict.GetValue()
                                       : UncompressionDict::GetEmptyDict();
 
-#ifdef BLOCK_ENC
-  CachableEntry<EncryptedBlock> block;
-#else
-	CachableEntry<Block> block;
-#endif
+  CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
                     get_context, lookup_context, for_compaction,
                     /* use_cache */ true);
@@ -81,14 +74,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
-#ifdef BLOCK_ENC
-  iter = InitBlockIterator<TBlockIter>(rep_, (Block*)block.GetValue(), block_type, iter,
+  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
                                        block_contents_pinned);
-#else
-	iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
-																			 block_contents_pinned);
-#endif
-
 
   if (!block.IsCached()) {
     if (!ro.fill_cache && rep_->cache_key_prefix_size != 0) {

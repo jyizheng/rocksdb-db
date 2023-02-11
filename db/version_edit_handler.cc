@@ -12,8 +12,6 @@
 #include <cinttypes>
 
 #include "monitoring/persistent_stats_history.h"
-#include "sgx/enc_dec.h"
-#include "db/version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -156,19 +154,6 @@ Status VersionEditHandler::Initialize() {
 Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   Status s;
-#ifdef LOG_ENC
-	if (edit.is_log_secret) {
-		version_set_->AddReadSecret(edit.log_secret.log_num,edit.log_secret);
-	}
-#endif
-#ifdef BLOCK_ENC
-	if (edit.is_sst_key) {
-		AddSSTKeyToList(edit.sst_file_number,reinterpret_cast<unsigned char*>(edit.sst_key));
-	}
-	if (edit.is_sst_delete) {
-		DeleteSSTKeyFromList(edit.sst_delete_file_number);
-	}
-#endif
   if (edit.is_column_family_add_) {
     s = OnColumnFamilyAdd(edit, cfd);
   } else if (edit.is_column_family_drop_) {

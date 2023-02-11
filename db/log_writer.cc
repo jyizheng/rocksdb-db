@@ -14,38 +14,17 @@
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#ifdef LOG_ENC
-#include "sgx/hmac.h"
-#include "sgx/enc_dec.h"
-#endif
-
 
 namespace ROCKSDB_NAMESPACE {
-
-extern const unsigned char manifest_key[32];
-extern const unsigned char manifest_hash[48];
-
 namespace log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
-               bool recycle_log_files, bool manual_flush, bool manifest)
+               bool recycle_log_files, bool manual_flush)
     : dest_(std::move(dest)),
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
       manual_flush_(manual_flush) {
-#ifdef LOG_ENC
-  /*
-  Set Write's key and hash
-  */
-	if (manifest) {
-		memcpy(unique_key,manifest_key,32);
-		memcpy(previous_mac,manifest_hash,16);
-	} else {
-		GenerateRandomBytes(previous_mac,16);
-		GenerateRandomBytes(unique_key,32);
-	}
-#endif
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -74,14 +53,8 @@ IOStatus Writer::AddRecord(const Slice& slice) {
   size_t left = slice.size();
 
   // Header size varies depending on whether we are recycling or not.
-  int header_size =
+  const int header_size =
       recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize;
-#ifdef LOG_ENC
-  /*
-    Reflect size of GMAC
-  */
-	header_size = recycle_log_files_ ? kRecyclableHeaderSize + 16: kHeaderSize + 16;
-#endif
 
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
@@ -96,20 +69,9 @@ IOStatus Writer::AddRecord(const Slice& slice) {
       if (leftover > 0) {
         // Fill the trailer (literal below relies on kHeaderSize and
         // kRecyclableHeaderSize being <= 11)
-#ifndef LOG_ENC
         assert(header_size <= 11);
         s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
                                 static_cast<size_t>(leftover)));
-#else
-        /*
-          Reflect size of GMAC
-        */
-				assert(header_size <= 27);
-				char tmp_left[26];
-				for(int i = 0 ;i < 26; i++)
-					memset(tmp_left,0,26);
-				s = dest_->Append(Slice(tmp_left, static_cast<size_t>(leftover)));
-#endif
         if (!s.ok()) {
           break;
         }
@@ -188,34 +150,12 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   TEST_SYNC_POINT_CALLBACK("LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum",
                            &crc);
   EncodeFixed32(buf, crc);
-#ifdef LOG_ENC
-  /*
-    Encryption and Authentication
-  */
-	IOStatus s;
-	// Write the header and the payload
-	Encryption_buffer.reserve(n + 16);
-	Encryption_buffer.clear();
-	Slice header(buf,header_size);
-	log_encrypt(header,unique_key);
-	char new_mac[16];
-	Encryption_buffer.append(ptr,n);
-	Slice enc_contents(Encryption_buffer);
-	log_encrypt(enc_contents,unique_key,new_mac,previous_mac);
-	s = dest_->Append(header);
-	if (s.ok()) {
-		s = dest_->Append(Slice(Encryption_buffer));
-		s = dest_->Append(Slice(new_mac,16));
-		block_offset_ += 16; 
-	}
-	memcpy(previous_mac,new_mac,16);
-#else
+
   // Write the header and the payload
   IOStatus s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
   }
-#endif
   block_offset_ += header_size + n;
   return s;
 }

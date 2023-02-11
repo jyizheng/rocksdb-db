@@ -5,20 +5,6 @@
 # Inherit some settings from environment variables, if available
 
 #-----------------------------------------------
-# Compiler flags for Tweezer
-CXXFLAGS+= -DBLOCK_ENC -DLOG_ENC -DMEMTABLE -DCACHE
-
-# Include path for openssl
-CXXFLAGS += -I../openssl/include
-# Include path for rcmalloc
-CXXFLAGS += -I../gperftools/src
-
-# Setup library link directory
-LDFLAGS += -L../libs
-# Link option for openssl
-LDFLAGS += -lssl -lcrypto
-# Link option for tcmalloc (untrusted allocator)
-LDFLAGS += -ltcmalloc_minimal
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
@@ -60,7 +46,7 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # `make install`
 
 # Set the default DEBUG_LEVEL to 1
-DEBUG_LEVEL?=0
+DEBUG_LEVEL?=1
 
 # LIB_MODE says whether or not to use/build "shared" or "static" libraries.
 # Mode "static" means to link against static libraries (.a)
@@ -437,7 +423,7 @@ endif
 default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
-	-Wno-error
+  -Wunused-parameter
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
@@ -449,6 +435,7 @@ ifeq ($(PLATFORM), OS_OPENBSD)
 endif
 
 ifndef DISABLE_WARNING_AS_ERROR
+	WARNING_FLAGS += -Werror
 endif
 
 
@@ -1334,7 +1321,6 @@ package:
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
 # ---------------------------------------------------------------------------
-
 $(STATIC_LIBRARY): $(LIB_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED1) $(SHARED2) $(SHARED3) $(SHARED4)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIB_OBJECTS)

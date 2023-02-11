@@ -252,28 +252,6 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kInAtomicGroup);
     PutVarint32(dst, remaining_entries_);
   }
-#ifdef LOG_ENC
-	if (is_log_secret) {
-		PutVarint32(dst, kLogkeyAndHash);
-		PutFixed64(dst, log_secret.log_num);
-		PutLengthPrefixedSlice(dst,Slice(log_secret.unique_key,32));
-		PutLengthPrefixedSlice(dst,Slice(log_secret.unique_hash,16));
-	}
-
-#endif
-
-#ifdef BLOCK_ENC
-	if (is_sst_key){
-    PutVarint32(dst, kSSTAdd);
-    PutFixed64(dst, sst_file_number);
-    PutLengthPrefixedSlice(dst,Slice(sst_key,32));
-	}
-	if (is_sst_delete) {
-    PutVarint32(dst, kSSTDelete);
-    PutFixed64(dst, sst_delete_file_number);
-  }
-	
-#endif
   return true;
 }
 
@@ -633,29 +611,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
-#ifdef LOG_ENC
-			case kLogkeyAndHash:
-				is_log_secret = true;
-				GetFixed64(&input,&log_secret.log_num);
-				GetLengthPrefixedSlice(&input,&str);
-				memcpy(log_secret.unique_key,str.data(),32);
-				GetLengthPrefixedSlice(&input,&str);
-				memcpy(log_secret.unique_hash,str.data(),16);
-				break;
-#endif
-
-#ifdef BLOCK_ENC
-			case kSSTAdd:
-				is_sst_key = true;
-				GetFixed64(&input,&sst_file_number);
-				GetLengthPrefixedSlice(&input,&str);
-				memcpy(sst_key,str.data(),32);
-				break;
-			case kSSTDelete:
-				is_sst_delete = true;
-				GetFixed64(&input,&sst_delete_file_number);
-				break;
-#endif
 
       default:
         if (tag & kTagSafeIgnoreMask) {
