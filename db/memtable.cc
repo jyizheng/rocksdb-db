@@ -38,10 +38,6 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 
-#ifdef MEMTABLE
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
@@ -111,8 +107,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
-			approximate_memory_usage_(0)
-      {
+      approximate_memory_usage_(0) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -133,18 +128,10 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-#ifndef MEMTABLE
   autovector<size_t> usages = {
       arena_.ApproximateMemoryUsage(), table_->ApproximateMemoryUsage(),
       range_del_table_->ApproximateMemoryUsage(),
       ROCKSDB_NAMESPACE::ApproximateMemoryUsage(insert_hints_)};
-#else
-  autovector<size_t> usages = {
-      arena_.ApproximateMemoryUsage(), table_->ApproximateMemoryUsage(),
-      range_del_table_->ApproximateMemoryUsage(),
-      ROCKSDB_NAMESPACE::ApproximateMemoryUsage(insert_hints_),
-			u_arena_.ApproximateMemoryUsage()};
-#endif
   size_t total_usage = 0;
   for (size_t usage : usages) {
     // If usage + total_usage >= kMaxSizet, return kMaxSizet.
@@ -171,16 +158,9 @@ bool MemTable::ShouldFlushNow() {
 
   // If arena still have room for new block allocation, we can safely say it
   // shouldn't flush.
-#ifdef MEMTABLE
-  auto allocated_memory = table_->ApproximateMemoryUsage() +
-                          range_del_table_->ApproximateMemoryUsage() +
-                          arena_.MemoryAllocatedBytes() +
-													u_arena_.MemoryAllocatedBytes();
-#else
   auto allocated_memory = table_->ApproximateMemoryUsage() +
                           range_del_table_->ApproximateMemoryUsage() +
                           arena_.MemoryAllocatedBytes();
-#endif
 
   approximate_memory_usage_.store(allocated_memory, std::memory_order_relaxed);
 
@@ -422,21 +402,7 @@ class MemTableIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
-#ifdef MEMTABLE
-/* Suppose this only be called from Flush Job. !!! */
-		Slice untrusted_v = GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
-    char tags[16];
-    void* value_ptr;
-    uint32_t value_size = DecodeFixed32(untrusted_v.data());
-		const_cast<MemTableIterator*>(this)->tmp_buf.reset(new char[value_size]);
-    memcpy(tags,untrusted_v.data() + 4, 16);
-    memcpy(&value_ptr, untrusted_v.data() + 20, 8);
-		memcpy(tmp_buf.get(), value_ptr, value_size);
-    Slice v(tmp_buf.get(), value_size);
-		return v;
-#else
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
-#endif
   }
 
   Status status() const override { return Status::OK(); }
@@ -459,9 +425,6 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
-#ifdef MEMTABLE
-	std::unique_ptr<char[]> tmp_buf;
-#endif
 };
 
 InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
@@ -527,40 +490,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   //  value_size   : varint32 of value.size()
   //  value bytes  : char[value.size()]
   uint32_t key_size = static_cast<uint32_t>(key.size());
+  uint32_t val_size = static_cast<uint32_t>(value.size());
   uint32_t internal_key_size = key_size + 8;
-#ifdef MEMTABLE 
-  const uint32_t encoded_len = VarintLength(internal_key_size) +
-                               internal_key_size + 4 /*value size */ + 16 /*GHASH SIZE */ +
-                               8 /* Pointer Size */;
-  char* buf = nullptr;
-  std::unique_ptr<MemTableRep>& table =
-      type == kTypeRangeDeletion ? range_del_table_ : table_;
-  KeyHandle handle = table->Allocate(encoded_len, &buf);
-//Allocate Untrust memory
-  size_t sz = value.size();
-	char *untrust_buf = reinterpret_cast<char*>(u_arena_.AllocateAligned(static_cast<size_t>(sz)));
-	memcpy(untrust_buf,value.data(),sz);
-	char tags[16];
-	Encryption(Slice(untrust_buf,value.size()),memtable_key,gcm_iv,gcm_aad,(unsigned char*)tags);
-
-  char* p = EncodeVarint32(buf, internal_key_size);
-  memcpy(p, key.data(), key_size);
-  Slice key_slice(p, key_size);
-  p += key_size;
-  uint64_t packed = PackSequenceAndType(s, type);
-  EncodeFixed64(p, packed);
-  p += 8;
-	uint32_t new_val_size = 28;
-  p = EncodeVarint32(p, new_val_size);
-	EncodeFixed32(p, value.size());
-	p += 4;
-	memcpy(p,tags,16);
-	p += 16; 
-	EncodeFixed64(p, reinterpret_cast<uint64_t>(untrust_buf));
-	p += 8;
-	//Disable assertion it will failed
-  //assert((unsigned)(p + new_val_size - buf) == (unsigned)encoded_len);
-#else
   const uint32_t encoded_len = VarintLength(internal_key_size) +
                                internal_key_size + VarintLength(val_size) +
                                val_size;
@@ -579,8 +510,6 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-
-#endif
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
 
   if (!allow_concurrent) {
@@ -770,7 +699,7 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
-				Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
           if (s->do_merge) {
@@ -792,16 +721,7 @@ static bool SaveValue(void* arg, const char* entry) {
           merge_context->PushOperand(
               v, s->inplace_update_support == false /* operand_pinned */);
         } else if (s->value != nullptr) {
-#ifdef MEMTABLE
-					char tags[16];
-					char* value_ptr;
-					uint32_t value_size = DecodeFixed32(v.data());
-					memcpy(tags,v.data() + 4, 16);
-					memcpy(&value_ptr, v.data() + 20, 8);
-          s->value->assign(value_ptr,value_size);
-					Decryption(Slice(*(s->value)),memtable_key,gcm_iv,gcm_aad,(unsigned char*)tags);
-#endif
-
+          s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -845,19 +765,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-#ifdef MEMTABLE
-        Slice untrust_v = GetLengthPrefixedSlice(key_ptr + key_length);
-				char tags[16];
-				void* value_ptr;
-				uint32_t value_size = DecodeFixed32(untrust_v.data());
-				memcpy(tags,untrust_v.data() + 4, 16);
-				memcpy(&value_ptr, untrust_v.data() + 20, 8);
-        PinnableSlice v;
-        v.PinSelf(Slice(static_cast<const char*>(value_ptr),static_cast<size_t>(value_size)));
-				Decryption(v,memtable_key,gcm_iv,gcm_aad,(unsigned char*)tags);
-#else
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-#endif
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);

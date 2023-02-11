@@ -39,9 +39,6 @@
 #include "rocksdb/comparator.h"
 #include "table/block_based/data_block_footer.h"
 #include "util/coding.h"
-#include "sgx/enc_dec.h"
-#include "sgx/hmac.h"
-
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -49,14 +46,13 @@ BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
     bool use_value_delta_encoding,
     BlockBasedTableOptions::DataBlockIndexType index_type,
-    double data_block_hash_table_util_ratio,bool data_block_)
+    double data_block_hash_table_util_ratio)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
       restarts_(),
       counter_(0),
-      finished_(false),
-			data_block(data_block_) {
+      finished_(false) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
@@ -70,8 +66,6 @@ BlockBuilder::BlockBuilder(
   assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);  // First restart point is at offset 0
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
-	meta_offset = 0;
-	
 }
 
 void BlockBuilder::Reset() {
@@ -85,8 +79,6 @@ void BlockBuilder::Reset() {
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
-	meta_buf.clear();
-	meta_offset = 0;
 }
 
 void BlockBuilder::SwapAndReset(std::string& buffer) {
@@ -118,171 +110,50 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
   if (!use_value_delta_encoding_ || (counter_ >= block_restart_interval_)) {
     estimate += VarintLength(value.size());  // varint for value length.
   }
-	if(data_block) {
-		estimate += 48;
-	}
 
   return estimate;
 }
 
 Slice BlockBuilder::Finish() {
   // Append restart array
-	if(!data_block) {	
-		for (size_t i = 0; i < restarts_.size(); i++) {
-			PutFixed32(&buffer_, restarts_[i]);
-		}
+  for (size_t i = 0; i < restarts_.size(); i++) {
+    PutFixed32(&buffer_, restarts_[i]);
+  }
 
-		uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
-		BlockBasedTableOptions::DataBlockIndexType index_type =
-				BlockBasedTableOptions::kDataBlockBinarySearch;
-		if (data_block_hash_index_builder_.Valid() &&
-				CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
-			data_block_hash_index_builder_.Finish(buffer_);
-			index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
-		}
+  uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
+  BlockBasedTableOptions::DataBlockIndexType index_type =
+      BlockBasedTableOptions::kDataBlockBinarySearch;
+  if (data_block_hash_index_builder_.Valid() &&
+      CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
+    data_block_hash_index_builder_.Finish(buffer_);
+    index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+  }
 
-		// footer is a packed format of data_block_index_type and num_restarts
-		uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
+  // footer is a packed format of data_block_index_type and num_restarts
+  uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
 
-		PutFixed32(&buffer_, block_footer);
-		finished_ = true;
-		return Slice(buffer_);
-	} else {
-		Encryption(Slice(meta_buf),(unsigned char*) sst_key.data(), gcm_iv, gcm_aad);
-		buffer_.append(meta_buf);
-		PutFixed32(&buffer_,meta_offset);
-		finished_ = true;
-		return Slice(buffer_);
-	}
-}
-
-void BlockBuilder::Add(const Slice& key, const Slice& value,
-                       const Slice* const delta_value) {
-	if(!data_block) {
-		assert(!finished_);
-		assert(counter_ <= block_restart_interval_);
-		assert(!use_value_delta_encoding_ || delta_value);
-		size_t shared = 0;  // number of bytes shared with prev key
-		if (counter_ >= block_restart_interval_) {
-			// Restart compression
-			restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
-			estimate_ += sizeof(uint32_t);
-			counter_ = 0;
-
-			if (use_delta_encoding_) {
-				// Update state
-				last_key_.assign(key.data(), key.size());
-			}
-		} else if (use_delta_encoding_) {
-			Slice last_key_piece(last_key_);
-			// See how much sharing to do with previous string
-			shared = key.difference_offset(last_key_piece);
-
-			// Update state
-			// We used to just copy the changed data here, but it appears to be
-			// faster to just copy the whole thing.
-			last_key_.assign(key.data(), key.size());
-		}
-
-		const size_t non_shared = key.size() - shared;
-		const size_t curr_size = buffer_.size();
-
-		if (use_value_delta_encoding_) {
-			// Add "<shared><non_shared>" to buffer_
-			PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-													static_cast<uint32_t>(non_shared));
-		} else {
-			// Add "<shared><non_shared><value_size>" to buffer_
-			PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-																	static_cast<uint32_t>(non_shared),
-																	static_cast<uint32_t>(value.size()));
-		}
-
-		// Add string delta to buffer_ followed by value
-		buffer_.append(key.data() + shared, non_shared);
-		// Use value delta encoding only when the key has shared bytes. This would
-		// simplify the decoding, where it can figure which decoding to use simply by
-		// looking at the shared bytes size.
-		if (shared != 0 && use_value_delta_encoding_) {
-			buffer_.append(delta_value->data(), delta_value->size());
-		} else {
-			buffer_.append(value.data(), value.size());
-		}
-
-		if (data_block_hash_index_builder_.Valid()) {
-			data_block_hash_index_builder_.Add(ExtractUserKey(key),
-																				 restarts_.size() - 1);
-		}
-
-		counter_++;
-		estimate_ += buffer_.size() - curr_size;
-	} else {
-		assert(!finished_);
-		assert(counter_ <= block_restart_interval_);
-		assert(!use_value_delta_encoding_ || delta_value);
-		std::string value_;
-		value_.append(value.data(),value.size());
-		Encryption(Slice(value_), (unsigned char*) sst_key.data(), gcm_iv, gcm_aad);
-		std::string tmp;
-		tmp.append(key.data(),key.size());
-		tmp.append(value_.data(),value_.size());
-		unsigned char hmac[48];
-		digest(hmac,Slice(tmp),sst_key);
-		size_t shared = 0;  // number of bytes shared with prev key
-		if (use_delta_encoding_) {
-			Slice last_key_piece(last_key_);
-			// See how much sharing to do with previous string
-			shared = key.difference_offset(last_key_piece);
-
-			// Update state
-			// We used to just copy the changed data here, but it appears to be
-			// faster to just copy the whole thing.
-			last_key_.assign(key.data(), key.size());
-		}
-
-		const size_t non_shared = key.size() - shared;
-		const size_t curr_size = meta_buf.size();
-
-			// Add "<shared><non_shared><value_size>" to buffer_
-		PutVarint32Varint32Varint32(&meta_buf, static_cast<uint32_t>(shared),
-																	static_cast<uint32_t>(non_shared),
-																	static_cast<uint32_t>(value_.size()));
-
-		// Add string delta to buffer_ followed by value
-		meta_buf.append(key.data() + shared, non_shared);
-		// Use value delta encoding only when the key has shared bytes. This would
-		// simplify the decoding, where it can figure which decoding to use simply by
-		// looking at the shared bytes size.
-		buffer_.append(value_.data(), value_.size());
-		buffer_.append((char*)hmac,48);
-
-		estimate_ += meta_buf.size() - curr_size + value_.size() + 48;
-		meta_offset += value_.size() + 48;
-	}
-}
-
-/*
-Slice BlockBuilder::FinishData(std::string file_name) {
-	block_encrypt(Slice(meta_buf),file_name);
-	buffer_.append(meta_buf);
-  PutFixed32(&buffer_,meta_offset);
+  PutFixed32(&buffer_, block_footer);
   finished_ = true;
   return Slice(buffer_);
 }
 
-void BlockBuilder::AddData(const Slice& key, const Slice& value, std::string file_name,
+void BlockBuilder::Add(const Slice& key, const Slice& value,
                        const Slice* const delta_value) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
   assert(!use_value_delta_encoding_ || delta_value);
-	block_encrypt(value,file_name);
-	std::string tmp;
-	tmp.append(key.data(),key_size());
-	tmp.append(value.data(),value.size());
-	unsigned char hmac[48];
-	digest(hmac,Slice(tmp),file_name);
   size_t shared = 0;  // number of bytes shared with prev key
-  if (use_delta_encoding_) {
+  if (counter_ >= block_restart_interval_) {
+    // Restart compression
+    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
+    estimate_ += sizeof(uint32_t);
+    counter_ = 0;
+
+    if (use_delta_encoding_) {
+      // Update state
+      last_key_.assign(key.data(), key.size());
+    }
+  } else if (use_delta_encoding_) {
     Slice last_key_piece(last_key_);
     // See how much sharing to do with previous string
     shared = key.difference_offset(last_key_piece);
@@ -294,23 +165,37 @@ void BlockBuilder::AddData(const Slice& key, const Slice& value, std::string fil
   }
 
   const size_t non_shared = key.size() - shared;
-  const size_t curr_size = meta_buf.size();
+  const size_t curr_size = buffer_.size();
 
+  if (use_value_delta_encoding_) {
+    // Add "<shared><non_shared>" to buffer_
+    PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
+                        static_cast<uint32_t>(non_shared));
+  } else {
     // Add "<shared><non_shared><value_size>" to buffer_
-  PutVarint32Varint32Varint32(&meta_buf, static_cast<uint32_t>(shared),
+    PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
                                 static_cast<uint32_t>(non_shared),
                                 static_cast<uint32_t>(value.size()));
+  }
 
   // Add string delta to buffer_ followed by value
-  meta_buf.append(key.data() + shared, non_shared);
+  buffer_.append(key.data() + shared, non_shared);
   // Use value delta encoding only when the key has shared bytes. This would
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
-  buffer_.append(value.data(), value.size());
-	buffer_.append((char*)hmac,48);
+  if (shared != 0 && use_value_delta_encoding_) {
+    buffer_.append(delta_value->data(), delta_value->size());
+  } else {
+    buffer_.append(value.data(), value.size());
+  }
 
-  estimate_ += meta_buf.size() - curr_size + value_.size() + 48;
-	meta_offset += value_.size() + 48;
+  if (data_block_hash_index_builder_.Valid()) {
+    data_block_hash_index_builder_.Add(ExtractUserKey(key),
+                                       restarts_.size() - 1);
+  }
+
+  counter_++;
+  estimate_ += buffer_.size() - curr_size;
 }
-*/
+
 }  // namespace ROCKSDB_NAMESPACE

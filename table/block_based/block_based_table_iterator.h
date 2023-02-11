@@ -81,15 +81,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return const_cast<BlockBasedTableIterator*>(this)
         ->MaterializeCurrentBlock();
   }
-
-
   Slice value() const override {
     // PrepareValue() must have been called.
     assert(!is_at_first_key_from_index_);
     assert(Valid());
 
     return block_iter_.value();
-	
   }
   Status status() const override {
     // Prefix index set status to NotFound when the prefix does not exist
@@ -192,11 +189,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   UserComparatorWrapper user_comparator_;
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
-#ifndef BLOCK_ENC
   DataBlockIter block_iter_;
-#else
-	EncryptedDataBlockIter block_iter_;
-#endif
   const SliceTransform* prefix_extractor_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;

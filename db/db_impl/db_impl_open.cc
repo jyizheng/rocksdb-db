@@ -22,26 +22,8 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
-#ifdef CACHE
-#include "sgx/untrusted_memory_allocator.h"
-#endif
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
-#ifdef CACHE
-UntrustedMemoryAllocator *untrusted_allocator;
-#endif
-
-#ifdef LOG_ENC
-extern unsigned char manifest_hash[48];
-extern unsigned char manifest_key[32];
-#endif
-
-extern std::map<uint64_t, std::string> KeyList;
-pthread_rwlock_t key_lock;
-
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
   ImmutableDBOptions immutable_db_options(db_options);
@@ -310,11 +292,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, env_, io_tracer_,
         nullptr /* stats */, immutable_db_options_.listeners));
-#ifndef LOG_ENC
     log::Writer log(std::move(file_writer), 0, false);
-#else
-		log::Writer log(std::move(file_writer), 0, false,/*manual_flush*/false,/*manifest*/true);
-#endif
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
@@ -635,10 +613,6 @@ Status DBImpl::Recover(
       bool corrupted_wal_found = false;
       s = RecoverLogFiles(wals, &next_sequence, read_only,
                           &corrupted_wal_found);
-#ifdef LOG_ENC
-//Delete Secret to reduce EPC
-			versions_->DeleteSecret();
-#endif
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -923,17 +897,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     // large sequence numbers).
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
                        &reporter, true /*checksum*/, wal_number);
-
-#ifdef LOG_ENC
-		auto res = versions_->log_secret.find(wal_number);
-		if (res != versions_->log_secret.end()) {
-			reader.SetSecret(res->second);
-		} else {
-			fprintf(stdout,"Log recovery fail \n");
-			exit(-1);
-		}
-
-#endif
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -1259,18 +1222,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),
                                       /*new_descriptor_log=*/true);
-#ifdef BLOCK_ENC
-			pthread_rwlock_rdlock(&key_lock);	
-			for(auto res : KeyList) {
-				VersionEdit e;
-				char* sstkey;
-				uint64_t file_number = res.first;
-				sstkey = (char*)((res.second).c_str());
-				e.AddSSTKey(file_number, sstkey);
-				versions_->LogAndApplyToDefaultColumnFamily(&e,&mutex_,directories_.GetDbDir());
-			}
-			pthread_rwlock_unlock(&key_lock);
-#endif
     }
   }
 
@@ -1393,11 +1344,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
-#ifdef BLOCK_ENC
-    std::string flush_file_name = TableFileName((*cfd->ioptions()).cf_paths, meta.fd.GetNumber(),
-                                                meta.fd.GetPathId());
-    GenerateKey(flush_file_name,NULL);
-#endif
 
       IOStatus io_s;
       s = BuildTable(
@@ -1540,15 +1486,6 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
-#ifdef LOG_ENC
-		char *unique_key = nullptr;
-		char *unique_hash = nullptr;
-		VersionEdit e;
-		unique_key = (*new_log)->GetKey();
-		unique_hash = (*new_log)->GetHash();
-		e.AddLogSecret((*new_log)->get_log_number(),unique_key,unique_hash);
-		versions_->LogAndApplyToDefaultColumnFamily(&e, &mutex_,directories_.GetDbDir());		
-#endif
   }
   return io_s;
 }
@@ -1557,29 +1494,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                     const bool seq_per_batch, const bool batch_per_txn) {
-#ifdef MEMTABLE
-	GenerateMemKey();
-#endif
-#ifdef CACHE
-	untrusted_allocator = new UntrustedMemoryAllocator;
-#endif
-#ifdef LOG_ENC
-	unsigned char hash[] = { 0xee, 0xbc, 0x1f, 0x57, 0x48, 0x7f, 0x51, 0x92, 0x1c, 0x04, 0x65, 0x66,
-    0x5f, 0x8a, 0xe6, 0xd1, 0x65, 0x8b, 0xb2, 0x6d, 0xe6, 0xf8, 0xa0, 0x69,
-    0xa3, 0x52, 0x02, 0x93, 0xa5, 0x72, 0x07, 0x8f, 0xe2, 0x1f, 0xf2, 0x54,
-    0x5f, 0x8a, 0xe6, 0xd1, 0x65, 0x8b, 0xb2, 0x6d, 0xe6, 0xf8, 0xa0, 0x69
-	};
-	unsigned char key[] = {
-    0xee, 0xbc, 0x1f, 0x57, 0x48, 0x7f, 0x51, 0x92, 0x1c, 0x04, 0x65, 0x66,
-    0x5f, 0x8a, 0xe6, 0xd1, 0x65, 0x8b, 0xb2, 0x6d, 0xe6, 0xf8, 0xa0, 0x69,
-    0xa3, 0x52, 0x02, 0x93, 0xa5, 0x72, 0x07, 0x8f
-	};
-	memcpy(manifest_hash,hash,48);
-	memcpy(manifest_key,key,32);
-#endif
-#ifdef BLOCK_ENC
-	pthread_rwlock_init(&key_lock,NULL);
-#endif
   Status s = ValidateOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
@@ -1859,8 +1773,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
                      impl);
     LogFlush(impl->immutable_db_options_.info_log);
-//When LOG_ENC is turned on, this will alway fail. becasue log_write generate random hash when it is created
-    //assert(impl->TEST_WALBufferIsEmpty());
+    assert(impl->TEST_WALBufferIsEmpty());
     // If the assert above fails then we need to FlushWAL before returning
     // control back to the user.
     if (!persist_options_status.ok()) {

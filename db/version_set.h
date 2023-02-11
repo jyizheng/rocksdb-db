@@ -1216,21 +1216,6 @@ class VersionSet {
     version->PrepareApply(mutable_cf_options, update_stats);
     AppendVersion(cfd, version);
   }
-#ifdef LOG_ENC
-	void AddReadSecret(uint64_t log_n, LogSecret sc) {
-		log_secret.insert(std::make_pair(log_n, sc));
-	}
-	
-	LogSecret RetrieveSecret(uint64_t log_n) {
-		auto result = log_secret.find(log_n);
-		return result->second;
-	}
-
-	void DeleteSecret() {
-		log_secret.clear();
-	}
-
-#endif
 
  protected:
   using VersionBuilderMap =
@@ -1367,9 +1352,6 @@ class VersionSet {
   IOStatus io_status_;
 
   std::shared_ptr<IOTracer> io_tracer_;
-#ifdef LOG_ENC
-	std::map<uint64_t,LogSecret> log_secret;
-#endif
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex

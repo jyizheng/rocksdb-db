@@ -237,19 +237,11 @@ void BlockBasedTableIterator::InitDataBlock() {
                                        is_for_compaction);
 
     Status s;
-#ifndef BLOCK_ENC
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
         /*get_context=*/nullptr, &lookup_context_, s,
         block_prefetcher_.prefetch_buffer(),
         /*for_compaction=*/is_for_compaction);
-#else
-    table_->NewDataBlockIterator<EncryptedDataBlockIter>(
-        read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_, s,
-        block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction);
-#endif
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }

@@ -65,7 +65,7 @@ class FilterBlockBuilder {
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
-		auto ret = Finish(empty_handle, &dont_care_status);
+    auto ret = Finish(empty_handle, &dont_care_status);
     assert(dont_care_status.ok());
     return ret;
   }

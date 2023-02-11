@@ -299,11 +299,7 @@ EOF
     if ! test $ROCKSDB_DISABLE_SNAPPY; then
         # Test whether Snappy library is installed
         # http://code.google.com/p/snappy/
-				# Enable snappy forced
-       COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
-       PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
-       JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
-       $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
           #include <snappy.h>
           int main() {}
 EOF
@@ -318,10 +314,7 @@ EOF
         # Test whether gflags library is installed
         # http://gflags.github.io/gflags/
         # check if the namespace is gflags
-				#Enable gflags forced.
-       COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-       PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-       if $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        if $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
           #include <gflags/gflags.h>
           using namespace GFLAGS_NAMESPACE;
           int main() {}

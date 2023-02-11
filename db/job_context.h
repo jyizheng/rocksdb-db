@@ -15,8 +15,6 @@
 #include "db/log_writer.h"
 #include "db/column_family.h"
 
-#include "db/version_edit.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 class MemTable;
@@ -183,11 +181,6 @@ struct JobContext {
   uint64_t prev_total_log_size = 0;
   size_t num_alive_log_files = 0;
   uint64_t size_log_to_delete = 0;
-
-#ifdef BLOCK_ENC
-//Version edit that manage deleted file
-	std::vector<uint64_t> deletion_vector;
-#endif
 
   // Snapshot taken before flush/compaction job.
   std::unique_ptr<ManagedSnapshot> job_snapshot;

@@ -65,15 +65,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
-#ifdef BLOCK_ENC
-extern std::map<uint64_t, std::string> KeyList;
-extern pthread_rwlock_t key_lock;
-#endif
 
 const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   switch (compaction_reason) {
@@ -1621,27 +1613,6 @@ Status CompactionJob::InstallCompactionResults(
       edit->AddBlobFile(blob);
     }
   }
-#ifdef BLOCK_ENC
-  for (const auto& sub_compact : compact_->sub_compact_states) {
-    for (const auto& out : sub_compact.outputs) {	
-			VersionEdit e;
-			char sstkey[32];
-			uint64_t file_number = out.meta.fd.GetNumber();
-			pthread_rwlock_rdlock(&key_lock);
-			auto res = KeyList.find(file_number);
-	    if (res != KeyList.end()) {
-  	    memcpy(sstkey,(char*)((res->second).c_str()),32);
-    	  e.AddSSTKey(res->first,sstkey);
-    	} else {
-      	fprintf(stdout,"Fail to Find sst key \n");
-      	exit(-1);
-    	}
-			pthread_rwlock_unlock(&key_lock);
-			versions_->LogAndApplyToDefaultColumnFamily(&e, db_mutex_,db_directory_);
-		}
-	}
-
-#endif
 
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, edit, db_mutex_,
@@ -1682,9 +1653,6 @@ Status CompactionJob::OpenCompactionOutputFile(
                     file_number, sub_compact->compaction->output_path_id());
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-#ifdef BLOCK_ENC
-	GenerateKey(fname,NULL);
-#endif
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,

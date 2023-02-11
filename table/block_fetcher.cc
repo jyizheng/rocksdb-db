@@ -24,16 +24,6 @@
 #include "table/persistent_cache_helper.h"
 #include "util/compression.h"
 #include "util/stop_watch.h"
-#ifdef CACHE
-#include "sgx/untrusted_memory_allocator.h"
-#endif
-
-
-#ifdef BLOCK_ENC
-#include "sgx/hmac.h"
-#include "sgx/enc_dec.h"
-#include "openssl/bio.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -74,19 +64,7 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     if (s.ok() && prefetch_buffer_->TryReadFromCache(
                       opts, handle_.offset(), block_size_with_trailer_, &slice_,
                       for_compaction_)) {
-#ifdef BLOCK_ENC
-        if (decrypt) {
-          char hmac[48];
-          digest((unsigned char*) hmac, Slice(slice_.data(),block_size_ - 48), sst_key);
-          Slice hmacfromfile(slice_.data() + slice_.size() - 48 - kBlockTrailerSize,48);
-          if (hmacfromfile.compare(Slice(hmac,48))) {
-            fprintf(stdout,"Block Corruption\n");
-            exit(-1);
-          }
-					Decryption(Slice(slice_.data(),block_size_ - 48), (unsigned char*)sst_key.data(),gcm_iv,gcm_aad);
-        }
-#endif
-      //CheckBlockChecksum();
+      CheckBlockChecksum();
       if (!status_.ok()) {
         return true;
       }
@@ -145,32 +123,12 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
     // file reader that does not implement mmap reads properly.
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
-#ifdef CACHE
-		if(!for_compaction_) {
-    	compressed_buf_ = UntrustedAllocateBlock(block_size_with_trailer_);
-		} else {
-			compressed_buf_ = AllocateBlock(block_size_with_trailer_,
+    compressed_buf_ = AllocateBlock(block_size_with_trailer_,
                                     memory_allocator_compressed_);
-		}
-#else
-		compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                    memory_allocator_compressed_);
-#endif
-
     used_buf_ = compressed_buf_.get();
   } else {
-#ifdef CACHE
-		if(!for_compaction_) {
-    	heap_buf_ =
-        UntrustedAllocateBlock(block_size_with_trailer_);
-		} else {
-    	heap_buf_ =
+    heap_buf_ =
         AllocateBlock(block_size_with_trailer_, memory_allocator_);
-		}
-#else
-		heap_buf_ =
-        AllocateBlock(block_size_with_trailer_, memory_allocator_);
-#endif
     used_buf_ = heap_buf_.get();
   }
 }
@@ -197,15 +155,7 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
 
 inline void BlockFetcher::CopyBufferToHeapBuf() {
   assert(used_buf_ != heap_buf_.get());
-#ifdef CACHE
-	if(!for_compaction_) {
-  	heap_buf_ = UntrustedAllocateBlock(block_size_with_trailer_);
-	} else {
-		heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
-	}
-#else
-	heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
-#endif
+  heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
   memcpy(heap_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_heap_buf_memcpy_++;
@@ -214,17 +164,8 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
   assert(used_buf_ != compressed_buf_.get());
-#ifdef CACHE
-	if(!for_compaction_) {
-  	compressed_buf_ = UntrustedAllocateBlock(block_size_with_trailer_);
-	} else {
-  	compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                  memory_allocator_compressed_);	
-	}
-#else
-	compressed_buf_ = AllocateBlock(block_size_with_trailer_,
+  compressed_buf_ = AllocateBlock(block_size_with_trailer_,
                                   memory_allocator_compressed_);
-#endif
   memcpy(compressed_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_compressed_buf_memcpy_++;
@@ -242,10 +183,6 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 // After this method, if the block is compressed, it should be in
 // compressed_buf_, otherwise should be in heap_buf_.
 inline void BlockFetcher::GetBlockContents() {
-#ifdef BLOCK_ENC
-	if(decrypt)
-		block_size_ -= 48;
-#endif
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
     *contents_ = BlockContents(Slice(slice_.data(), block_size_));
@@ -300,36 +237,11 @@ Status BlockFetcher::ReadBlockContents() {
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
-#ifdef BLOCK_ENC
-        if (decrypt) {
-          char hmac[48];
-          digest((unsigned char*) hmac, Slice(slice_.data(),block_size_ - 48), sst_key);
-          Slice hmacfromfile(slice_.data() + slice_.size() - 48 - kBlockTrailerSize,48);
-          if (hmacfromfile.compare(Slice(hmac,48))) {
-            fprintf(stdout,"Block Corruption\n");
-            exit(-1);
-          }
-					Decryption(Slice(slice_.data(),block_size_ - 48), (unsigned char*)sst_key.data(),gcm_iv,gcm_aad);
-        }
-#endif
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
         status_ = file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                               &slice_, used_buf_, nullptr, for_compaction_);
-#ifdef BLOCK_ENC
-				if (decrypt) {
-					char hmac[48];
-					digest((unsigned char*) hmac, Slice(slice_.data(),block_size_ - 48), sst_key);
-					Slice hmacfromfile(slice_.data() + slice_.size() - 48 - kBlockTrailerSize,48);
-					if (hmacfromfile.compare(Slice(hmac,48))) {
-						fprintf(stdout,"Block Corruption\n");
-						exit(-1);
-					}
-					Decryption(Slice(slice_.data(),block_size_ - 48), (unsigned char*)sst_key.data(),gcm_iv,gcm_aad);
-				}
-#endif
-
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
@@ -375,9 +287,7 @@ Status BlockFetcher::ReadBlockContents() {
                                 " bytes, got " + ToString(slice_.size()));
     }
 
-#ifndef BLOCK_ENC
     CheckBlockChecksum();
-#endif
     if (status_.ok()) {
       InsertCompressedBlockToPersistentCacheIfNeeded();
     } else {
@@ -392,15 +302,9 @@ Status BlockFetcher::ReadBlockContents() {
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
-		if (decrypt) {
-    status_ = UncompressBlockContents(info, slice_.data(), block_size_ - 48,
-                                      contents_, footer_.version(), ioptions_,
-                                      memory_allocator_);
-		} else {
     status_ = UncompressBlockContents(info, slice_.data(), block_size_,
                                       contents_, footer_.version(), ioptions_,
                                       memory_allocator_);
-		}
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif

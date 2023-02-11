@@ -4093,13 +4093,8 @@ Status VersionSet::ProcessManifestWrites(
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
             io_tracer_, nullptr, db_options_->listeners));
-#ifndef LOG_ENC
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-#else
-        descriptor_log_.reset(
-            new log::Writer(std::move(file_writer), 0, false,false,true));
-#endif
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
                                         descriptor_log_.get(), io_s);
       } else {
@@ -4748,13 +4743,8 @@ Status VersionSet::Recover(
     VersionSet::LogReporter reporter;
     Status log_read_status;
     reporter.status = &log_read_status;
-#ifndef LOG_ENC
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-#else
-		log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */,true);
-#endif
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_missing_files=*/false,

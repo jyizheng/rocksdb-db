@@ -21,10 +21,6 @@
 #include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
-#ifdef BLOCK_ENC
-#include "sgx/enc_dec.h"
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 bool DBImpl::EnoughRoomForCompaction(
@@ -2487,19 +2483,6 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       }
       job_context.Clean();
       mutex_.Lock();
-#ifdef BLOCK_ENC
-		if (!job_context.deletion_vector.empty()) {
-			for(auto& file_number: job_context.deletion_vector) {
-				VersionEdit e;
-				e.DeleteSSTKey(file_number);
-				versions_->LogAndApplyToDefaultColumnFamily(&e,&mutex_,directories_.GetDbDir());
-			}
-		}
-		for(auto& file_number: job_context.deletion_vector) {	
-			DeleteSSTKeyFromList(file_number);	
-		}
-//Delete key from KeyList & Add Deletion record
-#endif
     }
     TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
 
@@ -2599,19 +2582,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       }
       job_context.Clean();
       mutex_.Lock();
-#ifdef BLOCK_ENC
-    if (!job_context.deletion_vector.empty()) {
-      for(auto& file_number: job_context.deletion_vector) {
-        VersionEdit e;
-        e.DeleteSSTKey(file_number);
-        versions_->LogAndApplyToDefaultColumnFamily(&e,&mutex_,directories_.GetDbDir());
-      }
-    }
-    for(auto& file_number: job_context.deletion_vector) {
-      DeleteSSTKeyFromList(file_number);
-    }
-//Delete key from KeyList & Add Deletion record
-#endif
     }
 
     assert(num_running_compactions_ > 0);

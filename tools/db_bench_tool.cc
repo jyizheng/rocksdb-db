@@ -836,9 +836,8 @@ DEFINE_uint64(blob_db_file_size,
 
 DEFINE_string(blob_db_compression_type, "snappy",
               "Algorithm to use to compress blob in blob file");
-
 static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;	
+    FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
 
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
@@ -2780,7 +2779,6 @@ class Benchmark {
     if (cache_.get() != nullptr) {
       // this will leak, but we're shutting down so nobody cares
       cache_->DisownData();
-			cache_.reset();
     }
   }
 

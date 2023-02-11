@@ -182,9 +182,6 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Stop BGWorkCompression and BGWorkWriteRawBlock threads
   void StopParallelCompression();
-#ifdef BLOCK_ENC
-	std::string Encryption_buffer;
-#endif
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

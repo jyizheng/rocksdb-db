@@ -537,9 +537,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     std::string fname;
     std::string dir_to_sync;
     if (type == kTableFile) {
-#ifdef BLOCK_ENC
-    	state.deletion_vector.emplace_back(number);
-#endif
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
       fname = MakeTableFileName(candidate_file.file_path, number);

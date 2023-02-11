@@ -1036,10 +1036,6 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-#ifdef LOG_ENC
-	std::unique_ptr<WritableFileWriter> generate_writer();
-#endif
-
  protected:
   const std::string dbname_;
   std::string db_id_;

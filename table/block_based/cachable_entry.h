@@ -122,11 +122,7 @@ public:
 
   void TransferTo(Cleanable* cleanable) {
     if (cleanable) {
-      if (cache_handle_ != nullptr && own_value_) {
-        assert(cache_ != nullptr);
-        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, cache_handle_);
-				cleanable->RegisterCleanup(&DeleteValue, value_, nullptr);
-			} else if (cache_handle_ != nullptr) {
+      if (cache_handle_ != nullptr) {
         assert(cache_ != nullptr);
         cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, cache_handle_);
       } else if (own_value_) {

@@ -153,8 +153,6 @@ class Block {
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
-  Block(BlockContents&& contents, bool trusted, size_t read_amp_bytes_per_bit = 0,
-                 Statistics* statistics = nullptr);
   // No copying allowed
   Block(const Block&) = delete;
   void operator=(const Block&) = delete;
@@ -221,7 +219,7 @@ class Block {
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
 
- protected:
+ private:
   BlockContents contents_;
   const char* data_;         // contents_.data.data()
   size_t size_;              // contents_.data.size()
@@ -474,7 +472,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
                               bool is_index_key_result);
 };
 
-class DataBlockIter : public BlockIter<Slice> {
+class DataBlockIter final : public BlockIter<Slice> {
  public:
   DataBlockIter()
       : BlockIter(), read_amp_bitmap_(nullptr), last_bitmap_offset_(0) {}
@@ -500,7 +498,7 @@ class DataBlockIter : public BlockIter<Slice> {
     data_block_hash_index_ = data_block_hash_index;
   }
 
-	virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     if (read_amp_bitmap_ && current_ < restarts_ &&
         current_ != last_bitmap_offset_) {
@@ -511,11 +509,7 @@ class DataBlockIter : public BlockIter<Slice> {
     return value_;
   }
 
-#ifndef BLOCK_ENC
   inline bool SeekForGet(const Slice& target) {
-#else
-	virtual inline bool SeekForGet(const Slice& target) {
-#endif
     if (!data_block_hash_index_) {
       SeekImpl(target);
       UpdateKey();
@@ -558,6 +552,7 @@ class DataBlockIter : public BlockIter<Slice> {
   virtual void NextImpl() override;
   virtual void PrevImpl() override;
 
+ private:
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
   // last `current_` value we report to read-amp bitmp
@@ -621,9 +616,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       global_seqno_state_.reset();
     }
   }
-#ifdef BLOCK_ENC
-	void check_corruption(Slice last_block_key, Slice first_block_key);
-#endif
 
   Slice user_key() const override {
     assert(Valid());

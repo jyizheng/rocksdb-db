@@ -132,50 +132,6 @@ void DataBlockIter::NextOrReportImpl() {
   ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
-#ifdef BLOCK_ENC
-void IndexBlockIter::check_corruption(Slice last_block_key, Slice first_block_key){
-	Slice last_key = ExtractUserKey(last_block_key);
-	Slice first_key = ExtractUserKey(first_block_key);
-	Slice current_key = key();
-	Slice prev_key;
-	uint32_t prev_offset;
-	uint32_t index = restart_index_;
-	while(GetRestartPoint(index) >= current_) {
-		if(index == 0) {
-			prev_offset = 0;
-			break;
-		}
-		index--;
-	}
-	prev_offset = GetRestartPoint(index);
-	const char* p = data_ + prev_offset;
-	const char* limit = data_ + restarts_;
-	uint32_t shared, non_shared;
-	p = DecodeKeyV4()(p, limit, &shared, &non_shared);
-	prev_key = Slice(p,non_shared);
-	if(prev_offset == 0) {
-	//First block only check one res
-		int res = last_key.compare(current_key);
-		if(res > 0) {
-			fprintf(stdout,"check corruption fail1 \n");
-			exit(-1);
-		}
-	} else {
-		int res = last_key.compare(current_key);
-		if (res > 0) {
-			fprintf(stdout,"check corruption fail2 \n");
-			exit(-1);
-		}
-		res = prev_key.compare(first_key);
-		if (res >= 0) {
-			fprintf(stdout,"check corruption fail3 \n");
-			exit(-1);
-		}
-	}
-}
-
-#endif
-
 void IndexBlockIter::NextImpl() { ParseNextIndexKey(); }
 
 void IndexBlockIter::PrevImpl() {
@@ -1011,16 +967,6 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
         restart_offset_, read_amp_bytes_per_bit, statistics));
   }
 }
-
-#ifdef BLOCK_ENC
-Block::Block(BlockContents&& contents, __attribute__((unused)) bool trusted, __attribute__((unused)) size_t read_amp_bytes_per_bit,
-             __attribute__((unused)) Statistics* statistics)
-    : contents_(std::move(contents)),
-      data_(contents_.data.data()),
-      size_(contents_.data.size()),
-      restart_offset_(0),
-      num_restarts_(1) {}
-#endif
 
 DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,

@@ -22,8 +22,6 @@
 
 #include "trace_replay/block_cache_tracer.h"
 
-#include "sgx/encryptedblock.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;

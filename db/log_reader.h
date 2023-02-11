@@ -16,7 +16,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "db/version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -51,7 +50,7 @@ class Reader {
   // If "checksum" is true, verify checksums if available.
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num,bool manifest = false);
+         bool checksum, uint64_t log_num);
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -101,16 +100,6 @@ class Reader {
   size_t GetReadOffset() const {
     return static_cast<size_t>(end_of_buffer_offset_);
   }
-#ifdef LOG_ENC
-  /*
-    Take arguments LogSecret including unique key and hash for log and set Reader's key and hash.
-  */
-	void SetSecret(LogSecret sc) {
-		memcpy(unique_key, sc.unique_key,32);
-		memcpy(previous_mac, sc.unique_hash,16);
-	}
-
-#endif
 
  protected:
   std::shared_ptr<Logger> info_log_;
@@ -169,14 +158,6 @@ class Reader {
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);
   void ReportDrop(size_t bytes, const Status& reason);
-  
-#ifdef LOG_ENC
-  /*
-    Space for key and hash.
-  */
-	char unique_key[32];
-	char previous_mac[48];
-#endif
 };
 
 class FragmentBufferedReader : public Reader {
